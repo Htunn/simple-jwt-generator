@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  jwt-generator:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - MONGODB_URI=mongodb://mongodb:27017/jwt-generator
+      - JWT_ISSUER=jwt-generator-app
+      - JWT_AUDIENCE=jwt-generator-api
+      - JWT_EXPIRATION=1h
+      - BCRYPT_ROUNDS=12
+      - SKIP_DATABASE=false
+    depends_on:
+      - mongodb
+    volumes:
+      - jwt-keys:/app/keys
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"\]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  mongodb:
+    image: mongo:7.0
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=password
+      - MONGO_INITDB_DATABASE=jwt-generator
+    volumes:
+      - mongodb-data:/data/db
+      - ./docker/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mongodb-data:
+  jwt-keys:
+
+networks:
+  default:
+    name: jwt-generator-network

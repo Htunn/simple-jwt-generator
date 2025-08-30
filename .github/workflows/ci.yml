@@ -1,0 +1,119 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [18.x, 20.x, 21.x]
+
+    services:
+      mongodb:
+        image: mongo:7.0
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "echo 'db.runCommand({ping:1}).ok' | mongosh localhost:27017/test --quiet"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Create environment file
+      run: |
+        cp .env.example .env
+        echo "MONGODB_URI=mongodb://localhost:27017/jwt-generator-test" >> .env
+        echo "SKIP_DATABASE=false" >> .env
+
+    - name: Run TypeScript compilation
+      run: npm run build
+
+    - name: Check if server starts
+      run: |
+        timeout 10s npm start &
+        sleep 5
+        curl -f http://localhost:3000/health || exit 1
+      env:
+        NODE_ENV: test
+
+    - name: Test JWT endpoints
+      run: |
+        # Start server in background
+        npm start &
+        SERVER_PID=$!
+        sleep 5
+        
+        # Test health endpoint
+        curl -f http://localhost:3000/health
+        
+        # Test JWKS endpoint
+        curl -f http://localhost:3000/api/jwks
+        
+        # Test token generation
+        curl -f -X POST http://localhost:3000/api/token/generate \
+          -H "Content-Type: application/json" \
+          -d '{"username":"test","email":"test@example.com"}'
+        
+        # Clean up
+        kill $SERVER_PID
+      env:
+        NODE_ENV: test
+
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Run npm audit
+      run: |
+        npm ci
+        npm audit --audit-level moderate
+
+    - name: Check for sensitive files
+      run: |
+        if [ -f .env ]; then
+          echo "❌ .env file should not be committed"
+          exit 1
+        fi
+        
+        if [ -d keys ]; then
+          echo "❌ keys/ directory should not be committed"
+          exit 1
+        fi
+        
+        echo "✅ No sensitive files found in repository"
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Run TypeScript checks
+      run: npx tsc --noEmit
