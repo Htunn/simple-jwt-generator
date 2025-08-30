@@ -452,3 +452,462 @@ This repository's `.gitignore` excludes the following sensitive files:
 - In production, consider using external key management services
 - Implement key rotation for enhanced security
 
+
+## Architecture & Sequence Diagrams
+
+### JWT Token Generation Flow
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant API as JWT Generator API
+    participant KeyService
+    participant Database as MongoDB (Optional)
+    
+    Client->>API: POST /api/token/generate
+    Note over Client,API: Demo mode (no auth required)
+    
+    API->>KeyService: getPrivateKey()
+    KeyService-->>API: RSA Private Key
+    
+    API->>API: Create JWT payload<br/>{sub, username, email}
+    API->>API: Sign JWT with RS256
+    
+    API-->>Client: JWT Token Response<br/>{access_token, expires_in}
+    
+    Note over Client: Token ready for use
+```
+
+### User Registration & Authentication Flow
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant API as JWT Generator API
+    participant Database as MongoDB
+    participant KeyService
+    
+    Client->>API: POST /api/auth/register
+    Note over Client,API: {username, email, password}
+    
+    API->>Database: Check if user exists
+    Database-->>API: User not found
+    
+    API->>API: Hash password with bcrypt
+    API->>Database: Create new user
+    Database-->>API: User created successfully
+    
+    API->>KeyService: getPrivateKey()
+    KeyService-->>API: RSA Private Key
+    
+    API->>API: Generate JWT token
+    API-->>Client: Registration success<br/>{user, token}
+    
+    Note over Client: User registered & authenticated
+```
+
+### JWT Token Validation Flow
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant API as JWT Generator API
+    participant KeyService
+    participant JWKS as JWKS Endpoint
+    
+    Note over Client: Has JWT token to validate
+    
+    Client->>API: POST /api/token/validate
+    Note over Client,API: {token: "eyJ..."}
+    
+    API->>KeyService: getPublicKey()
+    KeyService-->>API: RSA Public Key
+    
+    API->>API: Verify JWT signature<br/>Check issuer/audience<br/>Validate expiration
+    
+    alt Token Valid
+        API-->>Client: Validation Success<br/>{valid: true, payload}
+    else Token Invalid
+        API-->>Client: Validation Failed<br/>{valid: false, error}
+    end
+    
+    Note over Client: Token validation complete
+```
+
+### JWKS Public Key Distribution
+
+```mermaid
+sequenceDiagram
+    participant Client as External Service
+    participant JWKS as JWKS Endpoint
+    participant KeyService
+    participant Cache as Client Cache
+    
+    Note over Client: Needs public key for JWT verification
+    
+    Client->>JWKS: GET /api/jwks
+    JWKS->>KeyService: getJWKS()
+    
+    KeyService->>KeyService: Export public key as JWK
+    KeyService-->>JWKS: JWKS Response
+    
+    JWKS-->>Client: JSON Web Key Set<br/>{keys: [{kty, n, e, ...}]}
+    
+    Client->>Cache: Cache JWKS (24h TTL)
+    Client->>Client: Use public key to verify JWT
+    
+    Note over Client: JWT verified independently
+```
+
+### End-to-End Authentication Workflow
+
+```mermaid
+sequenceDiagram
+    participant User as User/Browser
+    participant Client as Client App
+    participant API as JWT Generator API
+    participant Database as MongoDB
+    participant Service as Protected Service
+    
+    User->>Client: Login request
+    Client->>API: POST /api/auth/login<br/>{username, password}
+    
+    API->>Database: Validate credentials
+    Database-->>API: User verified
+    
+    API->>API: Generate JWT token
+    API-->>Client: Login success<br/>{user, token}
+    
+    Client->>Client: Store JWT token
+    Client-->>User: Login successful
+    
+    Note over User,Service: User accesses protected resource
+    
+    User->>Client: Request protected data
+    Client->>Service: API call with<br/>Authorization: Bearer JWT
+    
+    Service->>API: GET /api/jwks<br/>(Get public key)
+    API-->>Service: JWKS response
+    
+    Service->>Service: Verify JWT signature<br/>using public key
+    
+    alt JWT Valid
+        Service-->>Client: Protected data
+        Client-->>User: Display data
+    else JWT Invalid
+        Service-->>Client: 401 Unauthorized
+        Client-->>User: Please login again
+    end
+```
+
+### Docker Deployment Architecture
+
+```mermaid
+graph TB
+    subgraph "Docker Environment"
+        LB[Load Balancer<br/>nginx:alpine]
+        
+        subgraph "Application Tier"
+            API1[JWT Generator API<br/>Instance 1]
+            API2[JWT Generator API<br/>Instance 2]
+        end
+        
+        subgraph "Data Tier"
+            DB[(MongoDB<br/>Replica Set)]
+            Keys[Shared Volume<br/>RSA Keys]
+        end
+    end
+    
+    Internet((Internet)) --> LB
+    LB --> API1
+    LB --> API2
+    
+    API1 --> DB
+    API2 --> DB
+    API1 --> Keys
+    API2 --> Keys
+    
+    subgraph "Client Applications"
+        WebApp[Web Application]
+        Mobile[Mobile App]
+        Service[Microservice]
+    end
+    
+    WebApp --> Internet
+    Mobile --> Internet
+    Service --> Internet
+    
+    style API1 fill:#e1f5fe
+    style API2 fill:#e1f5fe
+    style DB fill:#f3e5f5
+    style Keys fill:#fff3e0
+```
+
+### Key Management & Security Flow
+
+```mermaid
+sequenceDiagram
+    participant Admin
+    participant API as JWT Generator API
+    participant KeyService
+    participant FileSystem
+    participant Database as MongoDB
+    
+    Note over API: Application Startup
+    
+    API->>KeyService: initializeKeys()
+    KeyService->>FileSystem: Check for existing keys
+    
+    alt Keys Exist
+        KeyService->>FileSystem: Load private-key.pem
+        KeyService->>FileSystem: Load public-key.pem
+        KeyService-->>API: Keys loaded
+    else No Keys Found
+        KeyService->>KeyService: Generate RSA key pair
+        KeyService->>FileSystem: Save private-key.pem
+        KeyService->>FileSystem: Save public-key.pem
+        KeyService-->>API: New keys generated
+    end
+    
+    Note over API: API Ready for JWT operations
+    
+    Admin->>API: GET /api/key-info
+    API->>KeyService: getKeyId(), getPublicKey()
+    KeyService-->>API: Key metadata
+    API-->>Admin: Key information<br/>{kid, alg, status}
+    
+    Note over Admin,Database: Key rotation (future enhancement)
+```
+
+### CI/CD Pipeline Flow
+
+```mermaid
+graph LR
+    subgraph "Development"
+        Dev[Developer]
+        Local[Local Development]
+    end
+    
+    subgraph "GitHub"
+        Repo[GitHub Repository]
+        Actions[GitHub Actions]
+    end
+    
+    subgraph "CI/CD Pipeline"
+        Build[Build & Test]
+        Security[Security Scan]
+        Deploy[Deploy to Registry]
+    end
+    
+    subgraph "Production"
+        Registry[Docker Registry]
+        Prod[Production Environment]
+    end
+    
+    Dev --> Local
+    Local --> Repo
+    Repo --> Actions
+    Actions --> Build
+    Build --> Security
+    Security --> Deploy
+    Deploy --> Registry
+    Registry --> Prod
+    
+    Build --> |Tests Pass| Security
+    Security --> |Secure| Deploy
+    Deploy --> |Success| Prod
+    
+    style Build fill:#e8f5e8
+    style Security fill:#fff3cd
+    style Deploy fill:#d4edda
+    style Prod fill:#d1ecf1
+```
+
+### Component Architecture Overview
+
+```mermaid
+graph TD
+    subgraph "API Layer"
+        Router[Express Router]
+        Auth[Auth Controller]
+        JWKS[JWKS Controller]
+        Token[Token Controller]
+    end
+    
+    subgraph "Middleware Layer"
+        CORS[CORS Middleware]
+        Helmet[Security Headers]
+        AuthMW[Authentication MW]
+        ErrorMW[Error Handler]
+    end
+    
+    subgraph "Service Layer"
+        JWTSvc[JWT Service]
+        KeySvc[Key Service]
+        DBUtil[Database Utility]
+    end
+    
+    subgraph "Data Layer"
+        MongoDB[(MongoDB)]
+        KeyFiles[RSA Key Files]
+        Memory[In-Memory Cache]
+    end
+    
+    Router --> Auth
+    Router --> JWKS
+    Router --> Token
+    
+    Auth --> AuthMW
+    Auth --> JWTSvc
+    JWKS --> KeySvc
+    Token --> JWTSvc
+    
+    JWTSvc --> KeySvc
+    KeySvc --> KeyFiles
+    Auth --> DBUtil
+    DBUtil --> MongoDB
+    
+    CORS --> Router
+    Helmet --> Router
+    ErrorMW --> Router
+    
+    KeySvc --> Memory
+    
+    style JWTSvc fill:#e3f2fd
+    style KeySvc fill:#f3e5f5
+    style MongoDB fill:#e8f5e8
+    style KeyFiles fill:#fff3e0
+```
+
+### API Endpoint Flow Mapping
+
+| Endpoint | Controller | Service | Database | Keys |
+|----------|------------|---------|----------|------|
+| `POST /api/token/generate` | tokenController | jwtService | ❌ | ✅ |
+| `POST /api/token/validate` | tokenController | jwtService | ❌ | ✅ |
+| `POST /api/auth/register` | authController | jwtService | ✅ | ✅ |
+| `POST /api/auth/login` | authController | jwtService | ✅ | ✅ |
+| `GET /api/auth/profile` | authController | jwtService | ✅ | ✅ |
+| `GET /api/jwks` | jwksController | keyService | ❌ | ✅ |
+| `GET /api/public-key` | jwksController | keyService | ❌ | ✅ |
+| `GET /health` | index.ts | database | ✅* | ❌ |
+
+*Database check only (optional)
+
+### Security Architecture
+
+```mermaid
+graph TB
+    subgraph "Security Layers"
+        TLS[TLS/HTTPS Layer]
+        CORS[CORS Protection]
+        Helmet[Security Headers]
+        RateLimit[Rate Limiting]
+    end
+    
+    subgraph "Authentication Flow"
+        JWT[JWT Tokens]
+        RSA[RSA-256 Signing]
+        JWKS[Public Key Distribution]
+        Validation[Token Validation]
+    end
+    
+    subgraph "Data Protection"
+        BCrypt[Password Hashing]
+        EnvVars[Environment Variables]
+        KeyStorage[Secure Key Storage]
+        GitIgnore[Repository Security]
+    end
+    
+    TLS --> CORS
+    CORS --> Helmet
+    Helmet --> RateLimit
+    RateLimit --> JWT
+    
+    JWT --> RSA
+    RSA --> JWKS
+    JWKS --> Validation
+    
+    BCrypt --> EnvVars
+    EnvVars --> KeyStorage
+    KeyStorage --> GitIgnore
+    
+    style TLS fill:#ffebee
+    style RSA fill:#e8f5e8
+    style BCrypt fill:#fff3e0
+    style KeyStorage fill:#f3e5f5
+```
+
+## Workflow Examples
+
+### 1. Quick Start Demo (No Database)
+
+```bash
+# Start the server
+npm run dev
+
+# Generate a demo token
+curl -X POST http://localhost:3000/api/token/generate \
+  -H "Content-Type: application/json" \
+  -d '{"username":"demo","email":"demo@example.com"}'
+
+# Get JWKS for verification
+curl http://localhost:3000/api/jwks
+
+# Validate the token
+curl -X POST http://localhost:3000/api/token/validate \
+  -H "Content-Type: application/json" \
+  -d '{"token":"YOUR_JWT_TOKEN_HERE"}'
+```
+
+### 2. Full Authentication Flow (With Database)
+
+```bash
+# Set up environment
+cp .env.example .env
+# Edit .env: set SKIP_DATABASE=false and MONGODB_URI
+
+# Start MongoDB and the server
+npm run dev
+
+# Register a new user
+curl -X POST http://localhost:3000/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"john","email":"john@example.com","password":"secret123"}'
+
+# Login with credentials
+curl -X POST http://localhost:3000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"john","password":"secret123"}'
+
+# Access protected endpoint
+curl -X GET http://localhost:3000/api/auth/profile \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+### 3. External Service Integration
+
+```javascript
+// External service using JWKS for verification
+import * as jose from 'jose';
+
+const JWKS_URL = 'http://your-jwt-api.com/api/jwks'\;
+
+async function verifyToken(token) {
+  const jwks = jose.createRemoteJWKSet(new URL(JWKS_URL));
+  
+  const { payload } = await jose.jwtVerify(token, jwks, {
+    issuer: 'jwt-generator-app',
+    audience: 'jwt-generator-api',
+  });
+  
+  return payload; // Verified user data
+}
+```
+
+This architecture ensures:
+- **Scalability**: Stateless JWT tokens, shared key storage
+- **Security**: RSA-256 signing, secure key management
+- **Flexibility**: Database-optional design, configurable endpoints  
+- **Standards Compliance**: JWKS, OpenID Connect compatible
+- **Production Ready**: Docker, CI/CD, monitoring support
