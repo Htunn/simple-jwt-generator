@@ -1,0 +1,21 @@
+# Example terraform.tfvars file
+# Copy this file to terraform.tfvars and customize the values
+
+# Basic Configuration
+api_name    = "simple-jwt-generator-api"
+stage_name  = "prod"  # Options: dev, staging, prod
+backend_url = "http://your-backend-alb.amazonaws.com"  # Replace with your backend URL
+
+# Custom Domain (Optional)
+# Uncomment and configure if you want to use a custom domain
+# domain_name     = "api.yourdomain.com"
+# certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/12345678-1234-1234-1234-123456789012"
+
+# Tags
+tags = {
+  Project     = "SimpleJwtGenerator"
+  Environment = "prod"
+  Owner       = "YourTeam"
+  CostCenter  = "Engineering"
+  ManagedBy   = "Terraform"
+}

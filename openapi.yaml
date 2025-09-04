@@ -1,0 +1,1223 @@
+openapi: 3.0.3
+info:
+  title: Simple JWT Generator API
+  description: |
+    A production-ready JWT (JSON Web Token) generator API with JWKS endpoint support.
+    
+    **Features:**
+    - JWT token generation and validation using RSA-256
+    - JWKS (JSON Web Key Set) endpoint for public key distribution
+    - User authentication with MongoDB (optional)
+    - Demo token generation without database requirement
+    - AWS API Gateway compatible
+    
+    **Security:**
+    - RSA-256 JWT signing with 2048-bit keys
+    - bcrypt password hashing
+    - CORS and security headers
+    - Input validation and proper error handling
+    
+    **Standards Compliance:**
+    - RFC 7519 (JSON Web Token)
+    - RFC 7517 (JSON Web Key Set)
+    - OpenID Connect Discovery
+  version: 1.0.0
+  contact:
+    name: Simple JWT Generator
+    url: https://github.com/Htunn/simple-jwt-generator
+    email: support@example.com
+  license:
+    name: ISC License
+    url: https://opensource.org/licenses/ISC
+  termsOfService: https://github.com/Htunn/simple-jwt-generator/blob/main/README.md
+
+servers:
+  - url: https://api.yourdomain.com
+    description: Production server (AWS API Gateway)
+  - url: https://staging-api.yourdomain.com
+    description: Staging server
+  - url: http://localhost:3000
+    description: Local development server
+
+# AWS API Gateway specific extensions
+x-amazon-apigateway-request-validators:
+  validate-body:
+    validateRequestParameters: false
+    validateRequestBody: true
+  validate-params:
+    validateRequestParameters: true
+    validateRequestBody: false
+  validate-all:
+    validateRequestParameters: true
+    validateRequestBody: true
+
+x-amazon-apigateway-gateway-responses:
+  DEFAULT_4XX:
+    responseTemplates:
+      application/json: |
+        {
+          "success": false,
+          "error": "$context.error.messageString",
+          "requestId": "$context.requestId"
+        }
+  DEFAULT_5XX:
+    responseTemplates:
+      application/json: |
+        {
+          "success": false,
+          "error": "Internal server error",
+          "requestId": "$context.requestId"
+        }
+
+paths:
+  # Health and Utility Endpoints
+  /health:
+    get:
+      tags:
+        - Utility
+      summary: Health Check
+      description: Returns the health status of the API and database connection
+      operationId: healthCheck
+      x-amazon-apigateway-integration:
+        type: http_proxy
+        httpMethod: GET
+        uri: http://${stageVariables.backend_url}/health
+        connectionType: INTERNET
+        timeoutInMillis: 5000
+        cacheNamespace: health
+        cacheKeyParameters: []
+        requestParameters:
+          integration.request.header.X-Forwarded-For: context.identity.sourceIp
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              examples:
+                healthy:
+                  summary: Healthy service response
+                  value:
+                    success: true
+                    message: "JWT Generator API is healthy"
+                    timestamp: "2025-01-15T10:30:00.000Z"
+                    version: "1.0.0"
+                    database_connected: true
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /:
+    get:
+      tags:
+        - Documentation
+      summary: API Documentation
+      description: Returns API documentation and available endpoints
+      operationId: getApiDocumentation
+      x-amazon-apigateway-integration:
+        type: http_proxy
+        httpMethod: GET
+        uri: http://${stageVariables.backend_url}/
+        connectionType: INTERNET
+        timeoutInMillis: 10000
+      responses:
+        '200':
+          description: API documentation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiDocumentationResponse'
+
+  # Demo Token Endpoints (No Database Required)
+  /api/token/generate:
+    post:
+      tags:
+        - Demo Tokens
+      summary: Generate Demo JWT Token
+      description: |
+        Generate a JWT token for demonstration purposes without requiring user authentication.
+        This endpoint is useful for testing and integration development.
+      operationId: generateDemoToken
+      x-amazon-apigateway-request-validator: validate-body
+      x-amazon-apigateway-integration:
+        type: http_proxy
+        httpMethod: POST
+        uri: http://${stageVariables.backend_url}/api/token/generate
+        connectionType: INTERNET
+        timeoutInMillis: 10000
+        requestParameters:
+          integration.request.header.Content-Type: "'application/json'"
+          integration.request.header.X-Forwarded-For: context.identity.sourceIp
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DemoTokenRequest'
+            examples:
+              basic:
+                summary: Basic demo token request
+                value:
+                  username: "demo-user"
+                  email: "demo@example.com"
+              custom:
+                summary: Custom payload
+                value:
+                  username: "john_doe"
+                  email: "john@company.com"
+      responses:
+        '200':
+          description: Demo token generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+              examples:
+                success:
+                  summary: Successful token generation
+                  value:
+                    success: true
+                    data:
+                      access_token: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImRlZmF1bHQta2V5LWlkIn0..."
+                      token_type: "Bearer"
+                      expires_in: 3600
+                    message: "Demo JWT token generated successfully"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/token/validate:
+    post:
+      tags:
+        - Demo Tokens
+      summary: Validate JWT Token
+      description: |
+        Validate any JWT token issued by this service. Returns decoded payload and validation status.
+        Supports both Authorization header and request body token formats.
+      operationId: validateToken
+      x-amazon-apigateway-request-validator: validate-body
+      x-amazon-apigateway-integration:
+        type: http_proxy
+        httpMethod: POST
+        uri: http://${stageVariables.backend_url}/api/token/validate
+        connectionType: INTERNET
+        timeoutInMillis: 10000
+        requestParameters:
+          integration.request.header.Content-Type: "'application/json'"
+          integration.request.header.Authorization: method.request.header.Authorization
+      security:
+        - BearerAuth: []
+        - {}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenValidationRequest'
+            examples:
+              token_in_body:
+                summary: Token in request body
+                value:
+                  token: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImRlZmF1bHQta2V5LWlkIn0..."
+      responses:
+        '200':
+          description: Token validation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenValidationResponse'
+              examples:
+                valid_token:
+                  summary: Valid token response
+                  value:
+                    success: true
+                    data:
+                      valid: true
+                      payload:
+                        sub: "demo-user-id"
+                        username: "demo-user"
+                        email: "demo@example.com"
+                        iat: 1705315800
+                        exp: 1705319400
+                        iss: "jwt-generator-app"
+                        aud: "jwt-generator-api"
+                      decoded:
+                        header:
+                          alg: "RS256"
+                          typ: "JWT"
+                          kid: "default-key-id"
+                        payload:
+                          sub: "demo-user-id"
+                          username: "demo-user"
+                          email: "demo@example.com"
+                    message: "Token is valid"
+        '401':
+          description: Token validation failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenValidationResponse'
+              examples:
+                invalid_token:
+                  summary: Invalid token response
+                  value:
+                    success: false
+                    data:
+                      valid: false
+                      error: "Token has expired"
+                    error: "Token validation failed"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  # Authentication Endpoints (Requires Database)
+  /api/auth/register:
+    post:
+      tags:
+        - Authentication
+      summary: Register New User
+      description: |
+        Register a new user account. Requires MongoDB to be configured.
+        Returns user information and JWT token upon successful registration.
+      operationId: registerUser
+      x-amazon-apigateway-request-validator: validate-body
+      x-amazon-apigateway-integration:
+        type: http_proxy
+        httpMethod: POST
+        uri: http://${stageVariables.backend_url}/api/auth/register
+        connectionType: INTERNET
+        timeoutInMillis: 15000
+        requestParameters:
+          integration.request.header.Content-Type: "'application/json'"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserRegisterRequest'
+            examples:
+              new_user:
+                summary: New user registration
+                value:
+                  username: "johnsmith"
+                  email: "john@example.com"
+                  password: "securepassword123"
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserAuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: User already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                user_exists:
+                  summary: User already exists
+                  value:
+                    success: false
+                    error: "User with this username or email already exists"
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: User Login
+      description: |
+        Authenticate user with username/email and password.
+        Returns user information and JWT token upon successful login.
+      operationId: loginUser
+      x-amazon-apigateway-request-validator: validate-body
+      x-amazon-apigateway-integration:
+        type: http_proxy
+        httpMethod: POST
+        uri: http://${stageVariables.backend_url}/api/auth/login
+        connectionType: INTERNET
+        timeoutInMillis: 15000
+        requestParameters:
+          integration.request.header.Content-Type: "'application/json'"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserLoginRequest'
+            examples:
+              username_login:
+                summary: Login with username
+                value:
+                  username: "johnsmith"
+                  password: "securepassword123"
+              email_login:
+                summary: Login with email
+                value:
+                  username: "john@example.com"
+                  password: "securepassword123"
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserAuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_credentials:
+                  summary: Invalid username or password
+                  value:
+                    success: false
+                    error: "Invalid credentials"
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/auth/profile:
+    get:
+      tags:
+        - Authentication
+      summary: Get User Profile
+      description: |
+        Retrieve the profile information for the authenticated user.
+        Requires valid JWT token in Authorization header.
+      operationId: getUserProfile
+      security:
+        - BearerAuth: []
+      x-amazon-apigateway-integration:
+        type: http_proxy
+        httpMethod: GET
+        uri: http://${stageVariables.backend_url}/api/auth/profile
+        connectionType: INTERNET
+        timeoutInMillis: 10000
+        requestParameters:
+          integration.request.header.Authorization: method.request.header.Authorization
+      responses:
+        '200':
+          description: User profile retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileResponse'
+              examples:
+                user_profile:
+                  summary: User profile data
+                  value:
+                    success: true
+                    data:
+                      _id: "64f8b123456789abcdef1234"
+                      username: "johnsmith"
+                      email: "john@example.com"
+                      createdAt: "2024-01-15T10:30:00.000Z"
+                      updatedAt: "2024-01-15T10:30:00.000Z"
+                    message: "Profile retrieved successfully"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/auth/refresh:
+    post:
+      tags:
+        - Authentication
+      summary: Refresh JWT Token
+      description: |
+        Generate a new JWT token for the authenticated user.
+        Requires valid JWT token in Authorization header.
+      operationId: refreshToken
+      security:
+        - BearerAuth: []
+      x-amazon-apigateway-integration:
+        type: http_proxy
+        httpMethod: POST
+        uri: http://${stageVariables.backend_url}/api/auth/refresh
+        connectionType: INTERNET
+        timeoutInMillis: 10000
+        requestParameters:
+          integration.request.header.Authorization: method.request.header.Authorization
+          integration.request.header.Content-Type: "'application/json'"
+      responses:
+        '200':
+          description: Token refreshed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefreshTokenResponse'
+              examples:
+                refreshed_token:
+                  summary: New token generated
+                  value:
+                    success: true
+                    data:
+                      access_token: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImRlZmF1bHQta2V5LWlkIn0..."
+                      token_type: "Bearer"
+                      expires_in: 3600
+                    message: "Token refreshed successfully"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/auth/validate:
+    post:
+      tags:
+        - Authentication
+      summary: Validate User Token
+      description: |
+        Validate JWT token and return user information.
+        Supports both Authorization header and request body token formats.
+      operationId: validateUserToken
+      x-amazon-apigateway-request-validator: validate-body
+      x-amazon-apigateway-integration:
+        type: http_proxy
+        httpMethod: POST
+        uri: http://${stageVariables.backend_url}/api/auth/validate
+        connectionType: INTERNET
+        timeoutInMillis: 10000
+        requestParameters:
+          integration.request.header.Content-Type: "'application/json'"
+          integration.request.header.Authorization: method.request.header.Authorization
+      security:
+        - BearerAuth: []
+        - {}
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenValidationRequest'
+      responses:
+        '200':
+          description: Token validation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenValidationResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  # JWKS and Key Management Endpoints
+  /api/jwks:
+    get:
+      tags:
+        - JWKS
+      summary: Get JSON Web Key Set
+      description: |
+        Returns the JSON Web Key Set (JWKS) containing public keys for JWT verification.
+        This endpoint is cached for 24 hours and follows RFC 7517 specification.
+      operationId: getJWKS
+      x-amazon-apigateway-integration:
+        type: http_proxy
+        httpMethod: GET
+        uri: http://${stageVariables.backend_url}/api/jwks
+        connectionType: INTERNET
+        timeoutInMillis: 10000
+        cacheNamespace: jwks
+        cacheKeyParameters: []
+        requestParameters:
+          integration.request.header.Cache-Control: "'public, max-age=86400'"
+      responses:
+        '200':
+          description: JWKS retrieved successfully
+          headers:
+            Cache-Control:
+              description: Cache control header
+              schema:
+                type: string
+                example: "public, max-age=86400"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JWKSResponse'
+              examples:
+                jwks:
+                  summary: JWKS response
+                  value:
+                    keys:
+                      - kty: "RSA"
+                        use: "sig"
+                        key_ops: ["verify"]
+                        alg: "RS256"
+                        kid: "default-key-id"
+                        n: "base64url-encoded-modulus..."
+                        e: "AQAB"
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/.well-known/jwks.json:
+    get:
+      tags:
+        - JWKS
+      summary: Well-Known JWKS Endpoint
+      description: |
+        OpenID Connect Discovery compatible JWKS endpoint.
+        Returns the same JWKS data as /api/jwks but with additional CORS headers.
+      operationId: getWellKnownJWKS
+      x-amazon-apigateway-integration:
+        type: http_proxy
+        httpMethod: GET
+        uri: http://${stageVariables.backend_url}/api/.well-known/jwks.json
+        connectionType: INTERNET
+        timeoutInMillis: 10000
+        cacheNamespace: jwks-wellknown
+        cacheKeyParameters: []
+      responses:
+        '200':
+          description: Well-known JWKS retrieved successfully
+          headers:
+            Cache-Control:
+              description: Cache control header
+              schema:
+                type: string
+                example: "public, max-age=86400"
+            Access-Control-Allow-Origin:
+              description: CORS allow origin
+              schema:
+                type: string
+                example: "*"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JWKSResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/public-key:
+    get:
+      tags:
+        - JWKS
+      summary: Get Public Key (PEM Format)
+      description: |
+        Returns the RSA public key in PEM format for JWT verification.
+        Useful for libraries that require PEM format instead of JWKS.
+      operationId: getPublicKey
+      x-amazon-apigateway-integration:
+        type: http_proxy
+        httpMethod: GET
+        uri: http://${stageVariables.backend_url}/api/public-key
+        connectionType: INTERNET
+        timeoutInMillis: 10000
+        cacheNamespace: public-key
+        cacheKeyParameters: []
+      responses:
+        '200':
+          description: Public key retrieved successfully
+          headers:
+            Cache-Control:
+              description: Cache control header
+              schema:
+                type: string
+                example: "public, max-age=86400"
+          content:
+            application/x-pem-file:
+              schema:
+                type: string
+                example: |
+                  -----BEGIN PUBLIC KEY-----
+                  MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...
+                  -----END PUBLIC KEY-----
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/key-info:
+    get:
+      tags:
+        - JWKS
+      summary: Get Key Information
+      description: |
+        Returns metadata about the current RSA key pair including key ID,
+        algorithm, and status information.
+      operationId: getKeyInfo
+      x-amazon-apigateway-integration:
+        type: http_proxy
+        httpMethod: GET
+        uri: http://${stageVariables.backend_url}/api/key-info
+        connectionType: INTERNET
+        timeoutInMillis: 10000
+      responses:
+        '200':
+          description: Key information retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KeyInfoResponse'
+              examples:
+                key_info:
+                  summary: Key information
+                  value:
+                    success: true
+                    data:
+                      kid: "default-key-id"
+                      kty: "RSA"
+                      alg: "RS256"
+                      use: "sig"
+                      key_ops: ["verify"]
+                      created_at: "2024-01-15T10:30:00.000Z"
+                      status: "active"
+                    message: "Key information retrieved successfully"
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT token obtained from login or registration endpoint.
+        Include the token in the Authorization header as: `Bearer <token>`
+
+  schemas:
+    # Request Schemas
+    DemoTokenRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          description: Username for the demo token
+          example: "demo-user"
+          default: "demo-user"
+        email:
+          type: string
+          format: email
+          description: Email address for the demo token
+          example: "demo@example.com"
+          default: "demo@example.com"
+      description: Request body for demo token generation (both fields optional)
+
+    UserRegisterRequest:
+      type: object
+      required:
+        - username
+        - email
+        - password
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 30
+          pattern: '^[a-zA-Z0-9_]+$'
+          description: Unique username (3-30 characters, alphanumeric and underscore only)
+          example: "johnsmith"
+        email:
+          type: string
+          format: email
+          description: Valid email address
+          example: "john@example.com"
+        password:
+          type: string
+          minLength: 6
+          description: Password (minimum 6 characters)
+          example: "securepassword123"
+      description: User registration request body
+
+    UserLoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          description: Username or email address
+          example: "johnsmith"
+        password:
+          type: string
+          description: User password
+          example: "securepassword123"
+      description: User login request body
+
+    TokenValidationRequest:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT token to validate (alternative to Authorization header)
+          example: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImRlZmF1bHQta2V5LWlkIn0..."
+      description: Token validation request body (optional if using Authorization header)
+
+    # Response Schemas
+    HealthResponse:
+      type: object
+      required:
+        - success
+        - message
+        - timestamp
+        - version
+        - database_connected
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "JWT Generator API is healthy"
+        timestamp:
+          type: string
+          format: date-time
+          example: "2025-01-15T10:30:00.000Z"
+        version:
+          type: string
+          example: "1.0.0"
+        database_connected:
+          type: boolean
+          description: Whether MongoDB is connected and available
+          example: true
+
+    ApiDocumentationResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: "JWT Generator API"
+        version:
+          type: string
+          example: "1.0.0"
+        database_connected:
+          type: boolean
+          example: true
+        endpoints:
+          type: object
+          description: Available API endpoints and their descriptions
+        documentation:
+          type: object
+          description: Usage examples and documentation links
+
+    TokenData:
+      type: object
+      required:
+        - access_token
+        - token_type
+        - expires_in
+      properties:
+        access_token:
+          type: string
+          description: JWT access token
+          example: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImRlZmF1bHQta2V5LWlkIn0..."
+        token_type:
+          type: string
+          description: Token type (always "Bearer")
+          example: "Bearer"
+        expires_in:
+          type: integer
+          description: Token expiration time in seconds
+          example: 3600
+
+    TokenResponse:
+      type: object
+      required:
+        - success
+        - data
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          $ref: '#/components/schemas/TokenData'
+        message:
+          type: string
+          example: "Demo JWT token generated successfully"
+
+    User:
+      type: object
+      properties:
+        _id:
+          type: string
+          description: User ID
+          example: "64f8b123456789abcdef1234"
+        username:
+          type: string
+          example: "johnsmith"
+        email:
+          type: string
+          format: email
+          example: "john@example.com"
+        createdAt:
+          type: string
+          format: date-time
+          example: "2024-01-15T10:30:00.000Z"
+        updatedAt:
+          type: string
+          format: date-time
+          example: "2024-01-15T10:30:00.000Z"
+
+    UserAuthResponse:
+      type: object
+      required:
+        - success
+        - data
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          required:
+            - user
+            - token
+          properties:
+            user:
+              $ref: '#/components/schemas/User'
+            token:
+              $ref: '#/components/schemas/TokenData'
+        message:
+          type: string
+          example: "User registered successfully"
+
+    UserProfileResponse:
+      type: object
+      required:
+        - success
+        - data
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          $ref: '#/components/schemas/User'
+        message:
+          type: string
+          example: "Profile retrieved successfully"
+
+    RefreshTokenResponse:
+      type: object
+      required:
+        - success
+        - data
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          $ref: '#/components/schemas/TokenData'
+        message:
+          type: string
+          example: "Token refreshed successfully"
+
+    JWTPayload:
+      type: object
+      properties:
+        sub:
+          type: string
+          description: Subject (user ID)
+          example: "64f8b123456789abcdef1234"
+        username:
+          type: string
+          example: "johnsmith"
+        email:
+          type: string
+          format: email
+          example: "john@example.com"
+        iat:
+          type: integer
+          description: Issued at (Unix timestamp)
+          example: 1705315800
+        exp:
+          type: integer
+          description: Expiration time (Unix timestamp)
+          example: 1705319400
+        iss:
+          type: string
+          description: Issuer
+          example: "jwt-generator-app"
+        aud:
+          type: string
+          description: Audience
+          example: "jwt-generator-api"
+
+    JWTHeader:
+      type: object
+      properties:
+        alg:
+          type: string
+          example: "RS256"
+        typ:
+          type: string
+          example: "JWT"
+        kid:
+          type: string
+          example: "default-key-id"
+
+    TokenValidationResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          required:
+            - valid
+          properties:
+            valid:
+              type: boolean
+              description: Whether the token is valid
+              example: true
+            payload:
+              $ref: '#/components/schemas/JWTPayload'
+            decoded:
+              type: object
+              properties:
+                header:
+                  $ref: '#/components/schemas/JWTHeader'
+                payload:
+                  $ref: '#/components/schemas/JWTPayload'
+            error:
+              type: string
+              description: Error message if token is invalid
+              example: "Token has expired"
+        message:
+          type: string
+          example: "Token is valid"
+        error:
+          type: string
+          description: Error message for failed validation
+          example: "Token validation failed"
+
+    JWKSKey:
+      type: object
+      required:
+        - kty
+        - use
+        - key_ops
+        - alg
+        - kid
+        - n
+        - e
+      properties:
+        kty:
+          type: string
+          description: Key type
+          example: "RSA"
+        use:
+          type: string
+          description: Key use
+          example: "sig"
+        key_ops:
+          type: array
+          items:
+            type: string
+          description: Key operations
+          example: ["verify"]
+        alg:
+          type: string
+          description: Algorithm
+          example: "RS256"
+        kid:
+          type: string
+          description: Key ID
+          example: "default-key-id"
+        n:
+          type: string
+          description: RSA modulus (base64url encoded)
+          example: "base64url-encoded-modulus..."
+        e:
+          type: string
+          description: RSA exponent (base64url encoded)
+          example: "AQAB"
+
+    JWKSResponse:
+      type: object
+      required:
+        - keys
+      properties:
+        keys:
+          type: array
+          items:
+            $ref: '#/components/schemas/JWKSKey'
+          description: Array of JSON Web Keys
+
+    KeyInfoResponse:
+      type: object
+      required:
+        - success
+        - data
+        - message
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            kid:
+              type: string
+              example: "default-key-id"
+            kty:
+              type: string
+              example: "RSA"
+            alg:
+              type: string
+              example: "RS256"
+            use:
+              type: string
+              example: "sig"
+            key_ops:
+              type: array
+              items:
+                type: string
+              example: ["verify"]
+            created_at:
+              type: string
+              format: date-time
+              example: "2024-01-15T10:30:00.000Z"
+            status:
+              type: string
+              example: "active"
+        message:
+          type: string
+          example: "Key information retrieved successfully"
+
+    ErrorResponse:
+      type: object
+      required:
+        - success
+        - error
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          description: Error message
+          example: "Invalid request"
+        requestId:
+          type: string
+          description: AWS API Gateway request ID
+          example: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+
+  responses:
+    BadRequest:
+      description: Bad Request - Invalid input data
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            validation_error:
+              summary: Validation error
+              value:
+                success: false
+                error: "Username, email, and password are required"
+            invalid_format:
+              summary: Invalid format
+              value:
+                success: false
+                error: "Invalid email format"
+
+    Unauthorized:
+      description: Unauthorized - Invalid or missing authentication token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            missing_token:
+              summary: Missing token
+              value:
+                success: false
+                error: "Access token is required"
+            invalid_token:
+              summary: Invalid token
+              value:
+                success: false
+                error: "Invalid token"
+            expired_token:
+              summary: Expired token
+              value:
+                success: false
+                error: "Token has expired"
+
+    Forbidden:
+      description: Forbidden - Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            insufficient_permissions:
+              summary: Insufficient permissions
+              value:
+                success: false
+                error: "Insufficient permissions to access this resource"
+
+    NotFound:
+      description: Not Found - Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            user_not_found:
+              summary: User not found
+              value:
+                success: false
+                error: "User not found"
+            endpoint_not_found:
+              summary: Endpoint not found
+              value:
+                success: false
+                error: "Route not found"
+
+    InternalServerError:
+      description: Internal Server Error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            server_error:
+              summary: Internal server error
+              value:
+                success: false
+                error: "Internal server error"
+                requestId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+
+# Tags for organizing endpoints
+tags:
+  - name: Utility
+    description: Health checks and system information
+  - name: Documentation
+    description: API documentation and endpoint information
+  - name: Demo Tokens
+    description: Token generation and validation without database (demo mode)
+  - name: Authentication
+    description: User registration, login, and authentication (requires database)
+  - name: JWKS
+    description: JSON Web Key Set and public key endpoints for JWT verification
+
+# External documentation
+externalDocs:
+  description: Find out more about Simple JWT Generator
+  url: https://github.com/Htunn/simple-jwt-generator

@@ -15,6 +15,7 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import authRoutes from './routes/authRoutes';
 import jwksRoutes from './routes/jwksRoutes';
 import tokenRoutes from './routes/tokenRoutes';
+import docsRoutes from './routes/docsRoutes';
 
 class App {
   public app: express.Application;
@@ -30,8 +31,40 @@ class App {
   }
 
   private initializeMiddleware(): void {
-    // Security middleware
-    this.app.use(helmet());
+    // Security middleware with Swagger UI allowances
+    this.app.use(helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: [
+            "'self'", 
+            "'unsafe-inline'", 
+            "'unsafe-eval'",
+            "https://unpkg.com",
+            "https://cdn.jsdelivr.net"
+          ],
+          styleSrc: [
+            "'self'", 
+            "'unsafe-inline'", 
+            "https://unpkg.com",
+            "https://cdn.jsdelivr.net"
+          ],
+          fontSrc: [
+            "'self'", 
+            "data:", 
+            "https:"
+          ],
+          imgSrc: [
+            "'self'", 
+            "data:", 
+            "https:"
+          ],
+          connectSrc: [
+            "'self'"
+          ]
+        }
+      }
+    }));
     
     // CORS configuration
     this.app.use(cors({
@@ -98,12 +131,22 @@ class App {
           }
         },
         documentation: {
+          openapi: {
+            swagger_ui: `http://localhost:${this.port}/api/docs/docs`,
+            openapi_json: `http://localhost:${this.port}/api/docs/openapi.json`,
+            openapi_yaml: `http://localhost:${this.port}/api/docs/openapi.yaml`,
+            aws_api_gateway_compatible: true
+          },
           demo_usage: {
             generate_token: 'curl -X POST http://localhost:3000/api/token/generate -H "Content-Type: application/json" -d \'{"username":"testuser","email":"test@example.com"}\'',
             validate_token: 'curl -X POST http://localhost:3000/api/token/validate -H "Content-Type: application/json" -d \'{"token":"YOUR_JWT_TOKEN"}\'',
             get_jwks: 'curl http://localhost:3000/api/jwks'
           },
-          postman: 'Import the API endpoints into Postman for testing',
+          integration: {
+            postman: 'Import the OpenAPI spec from /api/docs/openapi.json into Postman',
+            aws_api_gateway: 'Use /api/docs/openapi.yaml to create AWS API Gateway',
+            insomnia: 'Import the OpenAPI spec from /api/docs/openapi.json into Insomnia'
+          },
           curl_examples: {
             register: database.isDbConnected() ? 'curl -X POST http://localhost:3000/api/auth/register -H "Content-Type: application/json" -d \'{"username":"test","email":"test@example.com","password":"password123"}\'' : 'Database required',
             login: database.isDbConnected() ? 'curl -X POST http://localhost:3000/api/auth/login -H "Content-Type: application/json" -d \'{"username":"test","password":"password123"}\'' : 'Database required',
@@ -118,6 +161,7 @@ class App {
     this.app.use('/api/token', tokenRoutes); // Demo token routes (no DB required)
     this.app.use('/api/auth', authRoutes);   // Auth routes (requires DB)
     this.app.use('/api', jwksRoutes);        // JWKS routes (no DB required)
+    this.app.use('/api/docs', docsRoutes);   // API documentation routes
 
     // Token endpoint (OAuth2-style)
     this.app.use('/token', tokenRoutes);
