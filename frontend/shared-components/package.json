@@ -1,0 +1,53 @@
+{
+  "name": "@jwt-generator/shared-components",
+  "version": "1.0.0",
+  "description": "Shared React components for JWT Generator micro-frontends",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "webpack --mode=production",
+    "build:dev": "webpack --mode=development",
+    "dev": "webpack serve --mode=development",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "react",
+    "typescript",
+    "tailwindcss",
+    "micro-frontend",
+    "module-federation"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@babel/core": "^7.28.4",
+    "@babel/preset-react": "^7.27.1",
+    "@babel/preset-typescript": "^7.27.1",
+    "@tailwindcss/postcss": "^4.1.13",
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "autoprefixer": "^10.4.21",
+    "babel-loader": "^10.0.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "css-loader": "^7.1.2",
+    "html-webpack-plugin": "^5.6.4",
+    "postcss-loader": "^8.2.0",
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0",
+    "style-loader": "^4.0.0",
+    "tailwindcss": "^4.1.13",
+    "typescript": "^5.9.2",
+    "webpack": "^5.101.3",
+    "webpack-cli": "^6.0.1",
+    "webpack-dev-server": "^5.2.2"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  }
+}

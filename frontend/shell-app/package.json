@@ -1,0 +1,49 @@
+{
+  "name": "@jwt-generator/shell-app",
+  "version": "1.0.0",
+  "description": "JWT Generator Shell Application - Host for all micro-frontends",
+  "main": "src/index.tsx",
+  "scripts": {
+    "start": "webpack serve --mode=development",
+    "build": "webpack --mode=production",
+    "build:dev": "webpack --mode=development",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "react",
+    "typescript",
+    "micro-frontend",
+    "module-federation",
+    "jwt",
+    "host"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@babel/core": "^7.28.4",
+    "@babel/preset-react": "^7.27.1",
+    "@babel/preset-typescript": "^7.27.1",
+    "@tailwindcss/postcss": "^4.1.13",
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "autoprefixer": "^10.4.21",
+    "babel-loader": "^10.0.0",
+    "clsx": "^2.1.1",
+    "css-loader": "^7.1.2",
+    "html-webpack-plugin": "^5.6.4",
+    "postcss-loader": "^8.2.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-router-dom": "^7.2.5",
+    "style-loader": "^4.0.0",
+    "typescript": "^5.9.2",
+    "webpack": "^5.101.3",
+    "webpack-cli": "^6.0.1",
+    "webpack-dev-server": "^5.2.2"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  }
+}
